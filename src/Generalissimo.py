@@ -78,12 +78,15 @@ def main():
    screenshot: ScreenShot = get_raw_state(monitor_info)
    state: NDArray[np.uint8] = preprocess_state(screenshot)
 
-   action: tuple[int, int] = test_action
-   perform_action(action, monitor_info)
+   #action: tuple[int, int] = test_action
+   #perform_action(action, monitor_info)
+   return(state)
 
 
 if __name__ == '__main__':
-   main()
+   s = main()
+   for r in s:
+      print(r)
 
 
 # -------- Old code -------------------------------------------------

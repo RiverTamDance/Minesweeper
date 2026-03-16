@@ -1,8 +1,10 @@
+from dataclasses import dataclass
 from collections import namedtuple
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
+
 
 class NeuralNetwork(nn.Module):
    def __init__(self):
@@ -43,12 +45,13 @@ class NeuralNetwork(nn.Module):
       # print(flat_size)
 
 # # setup
-dtype = torch.float
+
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 print(f"Using {device} device")
+dtype = torch.float
 torch.set_default_device(device)
 torch.manual_seed(42)
-
+#torch.set_printoptions(profile="full")
 
 # # Should I initialize the weights of the neural networks?
 # # No, PyTorch does it automatically when you call NeuralNetwork(). 
@@ -57,64 +60,85 @@ torch.manual_seed(42)
 # # which is designed to work well with ReLU activations. It scales the random weights based 
 # # on the layer's fan-in so that activations don't explode or vanish as they propagate through the neural network.
 
-
-# learning_rate = 1e-4
-# optimizer = torch.optim.Adam(Q_policy.parameters(), lr=learning_rate)
-
 # Experiences = namedtuple('Experiences', ['states', 'actions', 'rewards', 'next_state'])
 
 
-def train(experiences):
+def train(train_state, experiences):
    #I might as well get used to the ideas of tensors, as I'm living in a tensor world.
    # Turn batch into tuples of (state), (action), (reward), (next_state)
 
-   gamma = 0.99
 
-   Q_policy = NeuralNetwork().to(device)
-   Q_target = NeuralNetwork().to(device)
-   Q_target.load_state_dict(Q_policy.state_dict())
 
    SARS = namedtuple("SARS", "states actions rewards next_states")
    batch = SARS(*zip(*experiences))
 
-   states = torch.tensor(np.array(batch.states), dtype=torch.float, device=device).unsqueeze(1)
-   print(f"states shape: {states.shape}")
-   actions = torch.tensor(batch.actions, device=device)
-   rewards = torch.tensor(batch.rewards, device=device)
-   next_states = torch.tensor(np.array(batch.states), device=device)
-
-   target_values = Q_target.forward(states)
-
-   max_values = torch.max(target_values)
-   print(f"max_values and its shape: {max_values}, {max_values.shape}")
-   print(max_values)
-   
-   # The playing field seems to only contain true blacks when the game is over either through a mine
-   # appearing, or through the cells containing flags.
-   game_over = (next_states == 0).any()
-   print(game_over)
-   y = torch.where(game_over, rewards, rewards+gamma*max_values) 
-   print(rewards)
-   print(y)
-
-   # print("it worked")
-
-   #TODO: write an equation for y.
-
    #Time for a little dialogue on dimensions
-   # state (216x216) -> states (32x216x216)
-   # action (1) ->  actions (32x1)
+   # state (216x216) -> states (32x1x216x216)
+   # action (2) ->  actions (32x2) -> (32x1)
    # reward (1) ->  rewards (32x1)
    # next_state (216x216) -> next_states (32x216x216)
 
-#    data = zip(*batch)
-#    #y = r if next_state is None else r + gamma*max(Q_target)
-#    print(list(data))
+   # gotta use np.array() to create a master array of all the sub arrays, for performance reasons.
+   states = torch.tensor(np.array(batch.states), dtype=torch.float, device=device).unsqueeze(1)
+   #actions are pairs of 0-based cell coordinates from (0,0) to (8,8), and we remap them to a number from 0 to 80
+   actions = [x*9+y for x,y in batch.actions]
+   actions = torch.tensor(actions, device=device).unsqueeze(1)
+   rewards = torch.tensor(batch.rewards, device=device).unsqueeze(1)
+   next_states = torch.tensor(np.array(batch.states),dtype=torch.float, device=device).unsqueeze(1)
 
-# if __name__ == "__main__":
-#    batch = [('s1','t',1,'s2'), ('s2','a',-10,'s4')]
-#    train(batch)
+   policy_values = train_state.Q_policy(states)
 
+   # The output of a single Q_policy run is an 81 dim tensor, and over all states its a 32x81 vector.
+   # To meaningfully do gradient descent, I want to find the MSE(y-Q(s,a)), so I need to get the value 
+   # corresponding to the action in our experience history. I want one element per row.
+   # Gather appears to be the correct method for this operation. Claude has been insistant on that.
+   # we want to gather according to column, naturally. There is one row per experience (32 rows in a mini-batch),
+   # and there are 81 actions per row. We want to gather 1 action per row, which means we gather along the column axis.
+   policy_values = policy_values.gather(dim=1, index=actions)
+
+   # I have changed things around, and now a next_state is terminal if it is all black.
+   game_over = (next_states == 0).all()
+   y = torch.where(game_over, rewards, rewards+train_state.gamma*torch.max(train_state.Q_target(next_states))) 
+
+   #time for actual training!
+   
+   
+   train_state.Q_policy.train()
+
+   loss = F.smooth_l1_loss(y, policy_values)
+   loss.backward()
+   train_state.optimizer.step()
+   train_state.optimizer.zero_grad()
+
+   return(None)
+
+@dataclass
+class TrainState:
+   gamma: float
+   learning_rate: float
+   Q_policy: nn.Module
+   Q_target: nn.Module
+   optimizer: torch.optim.Optimizer
+
+
+def setup() -> TrainState:
+
+   gamma = 0.99
+   learning_rate = 1e-4
+   Q_policy = NeuralNetwork().to(device)
+   Q_target = NeuralNetwork().to(device)
+   Q_target.load_state_dict(Q_policy.state_dict())
+   optimizer = torch.optim.Adam(Q_policy.parameters(), lr=learning_rate)
+
+   return TrainState(
+      gamma = gamma,
+      learning_rate = learning_rate,
+      Q_policy = Q_policy,
+      Q_target = Q_target,
+      optimizer = optimizer
+   )
+
+   
 
 if __name__ == "__main__":
    print("don't run this file directly")

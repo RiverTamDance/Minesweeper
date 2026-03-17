@@ -10,13 +10,15 @@ import torch
 import socket
 import torch.nn as nn
 import utils
+import subprocess
+import time
 
 # constants
 
 test_action = (9, 9)
 CELL_WIDTH = CELL_HEIGHT = 24
 EPSILON = 0.1
-
+device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 
 def initialize_replay_buffer(memory_capacity):
    return(CircularBuffer(memory_capacity))
@@ -71,29 +73,31 @@ def get_state(monitor_info)-> NDArray:
 
 
 def listen_for_gamestate(port=12345):
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.bind(("127.0.0.1", port))
-    srv.listen(1)
-    conn, _ = srv.accept()
-    conn.setblocking(False)
-    buffer = ""
-    while True:
-        try:
-            data = conn.recv(4096).decode()
-            if not data:
-                return
-            buffer += data
-        except BlockingIOError:
-            pass
-        
-        if "\n" in buffer:
-            lines = buffer.split("\n")
-            buffer = lines[-1]  # keep incomplete trailing data
-            yield lines[-2]     # yield the last complete line
+   srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+   srv.bind(("127.0.0.1", port))
+   srv.listen(1)
+   print("Waiting for connection...")
+   conn, _ = srv.accept()
+   print("Connected!")
+   conn.setblocking(False)
+   buffer = ""
+   while True:
+      try:
+         data = conn.recv(4096).decode()
+         if not data:
+               return
+         buffer += data
+      except BlockingIOError:
+         pass
+      
+      if "\n" in buffer:
+         lines = buffer.split("\n")
+         buffer = lines[-1]  # keep incomplete trailing data
+         yield lines[-2]     # yield the last complete line
 
 
 def get_next_state(gamestate, monitor_info) -> tuple[bool, NDArray]:
-   if gamestate in ["new_game", "playing"]:
+   if gamestate in ["new_game", "playing", "no_change"]:
       terminal_state = False
       next_state = utils.get_state(monitor_info)
    elif gamestate in ["game_over", "victory"]:
@@ -109,7 +113,9 @@ def get_action(state: NDArray, policy_network: nn.Module) -> tuple[int,int]:
    if random.random() > EPSILON:
       action = (random.randint(0,8), random.randint(0,8))
    else:
-      action = int(torch.argmax(policy_network(state)).item())
+      tensor_state = torch.tensor(state, dtype=torch.float, device=device).unsqueeze(0)
+      tensor_state = tensor_state.unsqueeze(0)
+      action = int(torch.argmax(policy_network(tensor_state)).item())
       action = (a := action//9, action-a*9)
    return(action)
 
@@ -131,17 +137,21 @@ def perform_action(action: tuple[int, int], monitor_info: dict[str, int]) -> Non
 
 def restart_game():
    """reset the game board for a new episode"""
-
-   pyautogui.press('f2')
+   window = pyautogui.getWindowsWithTitle("XP Minesweeper Classic")[0]
+   window.activate()
+   time.sleep(0.1)
+   pyautogui.click(1922, 979)
    return None
 
 def get_reward(gamestate):
    if gamestate in ["new_game", "playing"]:
-      terminal_state = False
-      next_state = utils.get_state(monitor_info)
-   elif gamestate in ["game_over", "victory"]:
-      terminal_state = True
-      next_state = np.zeros((216, 216), dtype=np.float32)
+      reward = 0.1
+   elif gamestate == "no_change":
+      reward = 0
+   elif gamestate == "victory":
+      reward = 2
+   elif gamestate == "game_over":
+      reward = -2
    else:
       raise Exception(f"unanticipated gamestate {gamestate}")
    return(reward)
@@ -159,9 +169,7 @@ def main():
 
 
 if __name__ == '__main__':
-   s = main()
-   for r in s:
-      print(r)
+   print(pyautogui.getAllTitles())
 
 
 # -------- Old code -------------------------------------------------

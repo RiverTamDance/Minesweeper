@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from collections import namedtuple
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
+import utils
 
 
 class NeuralNetwork(nn.Module):
@@ -67,10 +67,7 @@ def train(train_state, experiences):
    #I might as well get used to the ideas of tensors, as I'm living in a tensor world.
    # Turn batch into tuples of (state), (action), (reward), (next_state)
 
-
-
-   SARS = namedtuple("SARS", "states actions rewards next_states")
-   batch = SARS(*zip(*experiences))
+   batch = utils.SARS(*zip(*experiences))
 
    #Time for a little dialogue on dimensions
    # state (216x216) -> states (32x1x216x216)
@@ -79,12 +76,12 @@ def train(train_state, experiences):
    # next_state (216x216) -> next_states (32x216x216)
 
    # gotta use np.array() to create a master array of all the sub arrays, for performance reasons.
-   states = torch.tensor(np.array(batch.states), dtype=torch.float, device=device).unsqueeze(1)
+   states = torch.tensor(np.array(batch.state), dtype=torch.float, device=device).unsqueeze(1)
    #actions are pairs of 0-based cell coordinates from (0,0) to (8,8), and we remap them to a number from 0 to 80
-   actions = [x*9+y for x,y in batch.actions]
+   actions = [x*9+y for x,y in batch.action]
    actions = torch.tensor(actions, device=device).unsqueeze(1)
-   rewards = torch.tensor(batch.rewards, device=device).unsqueeze(1)
-   next_states = torch.tensor(np.array(batch.states),dtype=torch.float, device=device).unsqueeze(1)
+   rewards = torch.tensor(batch.reward, device=device).unsqueeze(1)
+   next_states = torch.tensor(np.array(batch.state),dtype=torch.float, device=device).unsqueeze(1)
 
    policy_values = train_state.Q_policy(states)
 
@@ -121,11 +118,12 @@ class TrainState:
    optimizer: torch.optim.Optimizer
 
 
-def setup() -> TrainState:
+def setup(weights_path) -> TrainState:
 
    gamma = 0.99
    learning_rate = 1e-4
    Q_policy = NeuralNetwork().to(device)
+   Q_policy.load_state_dict(torch.load(weights_path, weights_only=True))
    Q_target = NeuralNetwork().to(device)
    Q_target.load_state_dict(Q_policy.state_dict())
    optimizer = torch.optim.Adam(Q_policy.parameters(), lr=learning_rate)
@@ -142,24 +140,3 @@ def setup() -> TrainState:
 
 if __name__ == "__main__":
    print("don't run this file directly")
-   # batch = [[1,2,3,4], [2,3,4,5], ['t','s','u','v']]
-   # train(batch)
-
-
-   # torch.manual_seed(123)
-   # model = NeuralNetwork()
-   # X = torch.rand((1, 1, 216, 216))
-   # out = model(X)
-
-   # # device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
-   # # print(f"Using {device} device")
-   # # torch.set_default_device(device)
-   # x = torch.arange(24)
-   # x = torch.reshape(x, [3,2,4])
-   # # x = torch.unsqueeze(x, -2)
-   # print(x)
-   # print(x.shape)
-   # # x[pillar,row,column]
-   # print(x[1,0,:]) #Returns all columns of the first row (of two) found at the second depth (of three).
-   # print(x[:,0,0]) #Returns the pillar found at the first row and column 
-   # print(x[1,:,:]) #Returns both rows found at depth 2

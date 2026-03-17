@@ -10,19 +10,19 @@ import torch
 import socket
 import torch.nn as nn
 import utils
-import subprocess
 import time
+from collections import namedtuple
 
 # constants
-
-test_action = (9, 9)
 CELL_WIDTH = CELL_HEIGHT = 24
-EPSILON = 0.1
+EPSILON_UPPER_BOUND = 50_000
+EPSILON_MINIMUM = 0.1
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 
 def initialize_replay_buffer(memory_capacity):
    return(CircularBuffer(memory_capacity))
 
+SARS = namedtuple("SARS", "state action reward next_state")
 
 def monitor_metadata() -> dict[str, int]:
    """setup some monitor metadata used throughout the program"""
@@ -108,9 +108,15 @@ def get_next_state(gamestate, monitor_info) -> tuple[bool, NDArray]:
    
    return(terminal_state, next_state)
 
+def get_epsilon(episode_count: int) -> float:
+   epsilon = (EPSILON_UPPER_BOUND-episode_count)/EPSILON_UPPER_BOUND
+   return epsilon
 
-def get_action(state: NDArray, policy_network: nn.Module) -> tuple[int,int]:
-   if random.random() > EPSILON:
+def get_action(state: NDArray, policy_network: nn.Module, episode_count) -> tuple[int,int]:
+
+   epsilon = max(get_epsilon(episode_count), EPSILON_MINIMUM)
+
+   if random.random() < epsilon:
       action = (random.randint(0,8), random.randint(0,8))
    else:
       tensor_state = torch.tensor(state, dtype=torch.float, device=device).unsqueeze(0)
@@ -143,15 +149,19 @@ def restart_game():
    pyautogui.click(1922, 979)
    return None
 
+def save_weights(state_dict, file_path):
+   torch.save(state_dict, file_path)
+   return None
+
 def get_reward(gamestate):
    if gamestate in ["new_game", "playing"]:
       reward = 0.1
    elif gamestate == "no_change":
       reward = 0
    elif gamestate == "victory":
-      reward = 2
+      reward = 1
    elif gamestate == "game_over":
-      reward = -2
+      reward = -1
    else:
       raise Exception(f"unanticipated gamestate {gamestate}")
    return(reward)
@@ -173,12 +183,3 @@ if __name__ == '__main__':
 
 
 # -------- Old code -------------------------------------------------
-
-# Display the picture
-# cv2.imshow('test1_colour', img)
-# cv2.imshow('test1_gray', gray)
-
-# # I'm not sure this code is necessary if I'm not actually opening a cv2 window.
-# # Press "q" to quit
-# if cv2.waitKey(0) & 0xFF == ord('q'):
-#    cv2.destroyAllWindows()

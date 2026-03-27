@@ -19,6 +19,7 @@ EPSILON_UPPER_BOUND = 50_000
 EPSILON_MINIMUM = 0.1
 device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
 
+
 def initialize_replay_buffer(memory_capacity):
    return(CircularBuffer(memory_capacity))
 

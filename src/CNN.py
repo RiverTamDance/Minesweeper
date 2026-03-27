@@ -77,6 +77,8 @@ def train(train_state, experiences):
 
    # gotta use np.array() to create a master array of all the sub arrays, for performance reasons.
    states = torch.tensor(np.array(batch.state), dtype=torch.float, device=device).unsqueeze(1)
+
+
    #actions are pairs of 0-based cell coordinates from (0,0) to (8,8), and we remap them to a number from 0 to 80
    actions = [x*9+y for x,y in batch.action]
    actions = torch.tensor(actions, device=device).unsqueeze(1)
@@ -98,14 +100,6 @@ def train(train_state, experiences):
    y = torch.where(game_over, rewards, rewards+train_state.gamma*torch.max(train_state.Q_target(next_states))) 
 
    #time for actual training!
-   
-   
-   train_state.Q_policy.train()
-
-   loss = F.smooth_l1_loss(y, policy_values)
-   loss.backward()
-   train_state.optimizer.step()
-   train_state.optimizer.zero_grad()
 
    return(None)
 

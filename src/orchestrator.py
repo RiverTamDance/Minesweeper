@@ -4,17 +4,15 @@ from collections import Counter
 import CNN
 import utils
 import time
-import random
 import numpy as np
 from pathlib import Path
 import os
-import torch
-import atexit
+from torch.profiler import profile, record_function, ProfilerActivity
 
 # Constants ----------------
 BUFFER_SIZE = 1_000_000
 C = 5_000
-WARM_UP = 1_000*10 #estimating 10 obs per ep.
+WARM_UP = 100*10 #estimating 10 obs per ep.
 NUMBER_OF_EPISODES = 100_000
 MONITOR_INFO = utils.monitor_metadata()
 np.set_printoptions(threshold=82)
@@ -37,7 +35,8 @@ def log_tile_visits(visit_counts: NDArray):
 
 def log_gamestates(gamestate_counter):
    with gamestate_counter_file.open("w", encoding="utf-8") as file:
-      file.write(gamestate_counter)
+      for key, count in gamestate_counter.items():
+         file.write(f"{key}\t{count}\n")
 
 
 def play_the_game(state: NDArray, gamestate_generator, train_state, episode_count):
@@ -99,7 +98,14 @@ def orchestrator():
 
          if len(D) >= WARM_UP:
             experience_batch = D.rsample(32)
-            CNN.train(train_state, experience_batch)
+
+            with profile(
+               activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+               record_shapes=True,
+               profile_memory=True,
+            ) as prof:
+               CNN.train(train_state, experience_batch)
+            print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
 
             if turn % C == 0:
                train_state.Q_target.load_state_dict(train_state.Q_policy.state_dict())

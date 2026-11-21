@@ -39,6 +39,7 @@ def create_underneath(mine_positions, n):
 
 
 def reveal(revealed, r, c):
+    print(r,c)
     if underneath[(r,c)] == -1:
         print("GAME_OVER")
         return
@@ -72,7 +73,7 @@ def get_neighbours(r, c):
 if __name__ == "__main__":
     # play a turn
 
-    choice = random.
+    choice = (random.choice(range(9)), random.choice(range(9)))
     # if this is the first turn, generate the board such that 
     # the choice isn't a GAME_OVER
     # create mine positions
@@ -91,5 +92,5 @@ if __name__ == "__main__":
     # update the field
     revealed = reveal(revealed,*choice)
     print(revealed)
-    revealed = reveal(revealed,8,8)
+    revealed = reveal(revealed,*(random.choice(range(9)), random.choice(range(9))))
     print(revealed)
